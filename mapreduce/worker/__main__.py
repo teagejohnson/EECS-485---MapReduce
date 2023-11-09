@@ -5,6 +5,8 @@ import json
 import time
 import click
 import mapreduce.utils
+from mapreduce.utils.servers import tcp_server, udp_server
+
 
 
 # Configure logging
@@ -32,10 +34,25 @@ class Worker:
         }
         LOGGER.debug("TCP recv\n%s", json.dumps(message_dict, indent=2))
 
-        # TODO: you should remove this. This is just so the program doesn't
-        # exit immediately!
-        LOGGER.debug("IMPLEMENT ME!")
-        time.sleep(120)
+        self.signals = {"shutdown": False}
+
+        tcp_server(host, port, self.signals, handle_tcp)
+
+    def send_register(host, port, manager_host, manager_port):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+
+            sock.connect((manager_host, manager_port))
+
+            message = {
+                "message_type" : "register",
+                "worker_host" : host,
+                "worker_port" : port,
+            }
+
+            message = json.dumps(message)
+            sock.sendall(message.encode('utf-8'))
+
+    def handle_tcp(self, msg):
 
 
 @click.command()

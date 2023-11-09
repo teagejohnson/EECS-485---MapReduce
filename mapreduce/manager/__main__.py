@@ -6,6 +6,8 @@ import json
 import time
 import click
 import mapreduce.utils
+import socket
+from mapreduce.utils.servers import tcp_server, udp_server
 
 
 # Configure logging
@@ -17,6 +19,9 @@ class Manager:
 
     def __init__(self, host, port):
         """Construct a Manager instance and start listening for messages."""
+
+        self.host = host
+        self.port = port
 
         LOGGER.info(
             "Starting manager host=%s port=%s pwd=%s",
@@ -31,10 +36,33 @@ class Manager:
         }
         LOGGER.debug("TCP recv\n%s", json.dumps(message_dict, indent=2))
 
-        # TODO: you should remove this. This is just so the program doesn't
-        # exit immediately!
-        LOGGER.debug("IMPLEMENT ME!")
-        time.sleep(120)
+        self.workers = []
+        self.signals = {"shutdown": False}
+
+        tcp_server(host, port, self.signals, self.handle_tcp)
+        udp_server(host, port, self.signals, self.handle_udp)
+
+    def handle_tcp(self, msg):
+        message_type = msg["message_type"]
+
+        if message_type == "shutdown":
+            signals["shutdown"] == False
+        
+        elif message_type == "register":
+            worker = {
+                "host": msg["worker_host"],
+                "port": msg["worker_port"],
+                "state": "ready",
+            }
+            self.workers.append(worker)
+            # need to send ack 
+
+    def handle_udp(self, msg):
+        print(msg)
+
+       
+
+
 
 
 @click.command()

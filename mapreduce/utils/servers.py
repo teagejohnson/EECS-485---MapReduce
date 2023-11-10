@@ -10,7 +10,6 @@ import socket
 
 
 def tcp_server(host, port, signals, handle_func):
-
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind((host, port))
@@ -23,7 +22,6 @@ def tcp_server(host, port, signals, handle_func):
                     clientsocket, address = sock.accept()
                 except socket.timeout:
                     continue
-                print("connection from", address[0])
 
                 clientsocket.settimeout(1)
 
@@ -42,17 +40,19 @@ def tcp_server(host, port, signals, handle_func):
                 message_str = message_bytes.decode("utf-8")
 
                 try:
-                    msg = json.loads(msg)
-                except JSONDecodeError:
+                    msg = json.loads(message_str)
+                except json.JSONDecodeError:
                     continue 
+
+                if msg["message_type"] == "shutdown":
+                    signals["shutdown"] = True
                 
                 handle_func(msg)
 
 
+
+
 def udp_server(host, port, signals, handle_func):
-        host = self.host
-        port = self.port
-        signals = self.signals
 
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -65,5 +65,19 @@ def udp_server(host, port, signals, handle_func):
                     message_bytes = sock.recv(4096)
                 except socket.timeout:
                     continue
-            message_str = message_bytes.decode("utf-8")
-            message_dict = json.loads(message_str)
+
+                message_str = message_bytes.decode("utf-8")
+                message_dict = json.loads(message_str)
+
+
+def tcp_client(host, port, task):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.connect((host, port))
+
+        if task == "shutdown":
+            message = json.dumps({"message_type": "shutdown"})
+            sock.sendall(message.encode('utf-8'))
+        
+        elif task == "ack":
+            message = json.dumps({"message_type": "register_ack"})
+            sock.sendall(message.encode('utf-8'))

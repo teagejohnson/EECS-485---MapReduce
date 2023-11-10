@@ -4,6 +4,8 @@ import logging
 import json
 import time
 import click
+import threading
+import socket
 import mapreduce.utils
 from mapreduce.utils.servers import tcp_server, udp_server
 
@@ -34,26 +36,43 @@ class Worker:
         }
         LOGGER.debug("TCP recv\n%s", json.dumps(message_dict, indent=2))
 
+        self.host = host
+        self.port = port
+        self.manager_host = manager_host
+        self.manager_port = manager_port
+
         self.signals = {"shutdown": False}
 
-        tcp_server(host, port, self.signals, handle_tcp)
+        self.threads = []
 
-    def send_register(host, port, manager_host, manager_port):
+        tcp_thread = threading.Thread(target=tcp_server, args=(host, port, self.signals, self.handle_tcp))
+        self.threads.append(tcp_thread)
+
+        tcp_thread.start()
+        time.sleep(1)
+
+        self.send_register()
+
+        tcp_thread.join()
+
+    def send_register(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-
-            sock.connect((manager_host, manager_port))
+            sock.connect((self.manager_host, self.manager_port))
 
             message = {
                 "message_type" : "register",
-                "worker_host" : host,
-                "worker_port" : port,
+                "worker_host" : self.host,
+                "worker_port" : self.port,
             }
 
             message = json.dumps(message)
             sock.sendall(message.encode('utf-8'))
 
     def handle_tcp(self, msg):
+        message_type = msg["message_type"]
 
+        if message_type == "shutdown":
+            self.signals["shutdown"] == True
 
 @click.command()
 @click.option("--host", "host", default="localhost")

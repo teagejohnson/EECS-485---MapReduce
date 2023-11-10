@@ -7,7 +7,10 @@ import time
 import click
 import mapreduce.utils
 import socket
+from queue import Queue, Empty
+import threading
 from mapreduce.utils.servers import tcp_server, udp_server
+from mapreduce.utils.servers import tcp_client
 
 
 # Configure logging
@@ -38,15 +41,81 @@ class Manager:
 
         self.workers = []
         self.signals = {"shutdown": False}
+        self.job_id = 0 # increment for each added worker
+        self.job_queue = Queue()
+        self.currently_running = False
 
-        tcp_server(host, port, self.signals, self.handle_tcp)
-        udp_server(host, port, self.signals, self.handle_udp)
+
+        self.threads = []
+        tcp_thread = threading.Thread(target=tcp_server, args=(host, port, self.signals, self.handle_tcp))
+        self.threads.append(tcp_thread)
+        udp_thread = threading.Thread(target=udp_server, args=(host, port, self.signals, self.handle_udp))
+        self.threads.append(udp_thread)
+
+        tcp_thread.start()
+        udp_thread.start()
+        time.sleep(1)
+
+        self.run_job()
+
+        tcp_thread.join()
+        udp_thread.join()
+
+
+    def run_job(self):
+        
+        while not self.signals["shutdown"]:
+            
+            try:
+                job = self.job_queue.get_nowait()
+            except Empty:
+                continue
+            
+            time.sleep(0.1)
+
+            job_complete = False
+
+            prefix = f"mapreduce-shared-job{self.job_id:05d}-"
+            with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
+                LOGGER.info("Created tmpdir %s", tmpdir)
+
+                # FIXME: Change this loop so that it runs either until shutdown 
+                # or when the job is completed.
+                while not self.signals["shutdown"] and not job_complete:
+                    time.sleep(0.1)
+
+                    # partition input files
+                    input_directory = job["input_directory"]
+                    files = [f for f in os.listdir(input_directory)]
+                    files = sorted(files)
+
+                    num_mappers = job["num_mappers"]
+
+                    partitioned_files = []
+                    for i in range(num_mappers):
+                        partitioned_files.append([])
+
+                    for i, file in enumerate(files):
+                        index = i % num_mappers
+                        partitioned_files[index].append(file)
+
+                    # need to seend job to mappers
+
+                    job_complete = True
+
+
+
+            LOGGER.info("Cleaned up tmpdir %s", tmpdir)
 
     def handle_tcp(self, msg):
         message_type = msg["message_type"]
 
         if message_type == "shutdown":
-            signals["shutdown"] == False
+            self.signals["shutdown"] == True
+            
+            # shutdown all workers
+            for worker in self.workers:
+                tcp_client(worker["host"], worker["port"], "shutdown")
         
         elif message_type == "register":
             worker = {
@@ -55,7 +124,16 @@ class Manager:
                 "state": "ready",
             }
             self.workers.append(worker)
-            # need to send ack 
+            
+            # send ack
+            tcp_client(worker["host"], worker["port"], "ack")
+
+        elif message_type == "new_manager_job":
+            msg['job_id'] = self.job_id
+            self.job_id = self.job_id + 1
+
+            self.job_queue.put(msg)
+
 
     def handle_udp(self, msg):
         print(msg)

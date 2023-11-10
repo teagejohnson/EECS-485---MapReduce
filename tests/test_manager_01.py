@@ -41,7 +41,7 @@ def worker_message_generator(tmp_path):
     for _ in (
         utils.wait_for_exists_glob(f"{tmp_path}/mapreduce-shared-job00000-*")
     ):
-        yield None
+        yield None  
 
     # Shutdown
     yield json.dumps({

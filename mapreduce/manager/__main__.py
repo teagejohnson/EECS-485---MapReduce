@@ -7,6 +7,7 @@ import time
 import click
 import mapreduce.utils
 import socket
+import shutil
 from queue import Queue, Empty
 import threading
 from mapreduce.utils.servers import tcp_server, udp_server
@@ -63,9 +64,7 @@ class Manager:
 
 
     def run_job(self):
-        
         while not self.signals["shutdown"]:
-            
             try:
                 job = self.job_queue.get_nowait()
             except Empty:
@@ -75,35 +74,39 @@ class Manager:
 
             job_complete = False
 
-            prefix = f"mapreduce-shared-job{self.job_id:05d}-"
+            output_directory = job["output_directory"]
+            id = job["job_id"]
+
+            if os.path.exists(output_directory):
+                shutil.rmtree(output_directory)
+
+            os.mkdir(output_directory)
+
+            # partition input files
+            input_directory = job["input_directory"]
+            files = [f for f in os.listdir(input_directory)]
+            files = sorted(files)
+
+            num_mappers = job["num_mappers"]
+
+            partitioned_files = []
+            for i in range(num_mappers):
+                partitioned_files.append([])
+
+            for i, file in enumerate(files):
+                index = i % num_mappers
+                partitioned_files[index].append(file)
+
+            prefix = f"mapreduce-shared-job{id:05d}-"
             with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
                 LOGGER.info("Created tmpdir %s", tmpdir)
 
-                # FIXME: Change this loop so that it runs either until shutdown 
-                # or when the job is completed.
                 while not self.signals["shutdown"] and not job_complete:
-                    time.sleep(0.1)
-
-                    # partition input files
-                    input_directory = job["input_directory"]
-                    files = [f for f in os.listdir(input_directory)]
-                    files = sorted(files)
-
-                    num_mappers = job["num_mappers"]
-
-                    partitioned_files = []
-                    for i in range(num_mappers):
-                        partitioned_files.append([])
-
-                    for i, file in enumerate(files):
-                        index = i % num_mappers
-                        partitioned_files[index].append(file)
+                    time.sleep(1)
 
                     # need to seend job to mappers
-
+                    
                     job_complete = True
-
-
 
             LOGGER.info("Cleaned up tmpdir %s", tmpdir)
 

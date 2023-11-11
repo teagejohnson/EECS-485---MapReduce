@@ -3,9 +3,13 @@ import os
 import logging
 import json
 import time
+import tempfile
 import click
+import shutil
 import threading
 import socket
+import hashlib
+import subprocess
 import mapreduce.utils
 from mapreduce.utils.servers import tcp_server, udp_server
 from mapreduce.utils.servers import tcp_client
@@ -72,10 +76,10 @@ class Worker:
             message = json.dumps(message)
             sock.sendall(message.encode('utf-8'))
 
-    def run_jon(self):
+    def run_job(self):
         while not self.signals["shutdown"]:
 
-            if current_job is not None:
+            if self.current_job is not None:
                 job = self.current_job
             else:
                 continue
@@ -83,9 +87,40 @@ class Worker:
             # do job
             time.sleep(1)
 
+            prefix = f"mapreduce-local-task{job['task_id']:05d}-"
+            with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
+
+                for input_path in job['input_paths']:
+                    executable = job["executable"]
+
+                    with open(input_path) as infile:
+                        with subprocess.Popen(
+                            [executable],
+                            stdin=infile,
+                            stdout=subprocess.PIPE,
+                            text=True,
+                        ) as map_process:
+                            for line in map_process.stdout:
+                                key = line.split('\t')[0]
+                                hexdigest = hashlib.md5(key.encode("utf-8")).hexdigest()
+                                keyhash = int(hexdigest, base=16)
+                                partition_number = keyhash % job['num_partitions']
+
+                                file_path = os.path.join(tmpdir, f'maptask{job["task_id"]:05d}-part{partition_number:05d}')
+                                with open(file_path, 'a') as file:
+                                    file.write(line)
+                    
+                for i in range(job['num_partitions']):
+                    filename = os.path.join(tmpdir, f'maptask{job["task_id"]:05d}-part{i:05d}')
+                    subprocess.run(["sort", "-o", filename, filename], check=True)
+
+                    new_filename = os.path.join(job['output_directory'], f'maptask{job["task_id"]:05d}-part{i:05d}')
+                    shutil.move(filename, new_filename)
+        
+            self.current_job = None
             message = {
                 "message_type": "finished",
-                "task_id": current_job['task_id'],
+                "task_id": job['task_id'],
                 "worker_host": self.host,
                 "worker_port": self.port
             }
@@ -100,7 +135,7 @@ class Worker:
             self.signals["shutdown"] == True
 
         if message_type == "new_map_task":
-            current_job = msg
+            self.current_job = msg
             
 
 @click.command()

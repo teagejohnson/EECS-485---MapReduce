@@ -8,6 +8,7 @@ import threading
 import socket
 import mapreduce.utils
 from mapreduce.utils.servers import tcp_server, udp_server
+from mapreduce.utils.servers import tcp_client
 
 
 
@@ -41,6 +42,8 @@ class Worker:
         self.manager_host = manager_host
         self.manager_port = manager_port
 
+        self.current_job = None
+        
         self.signals = {"shutdown": False}
 
         self.threads = []
@@ -52,6 +55,7 @@ class Worker:
         time.sleep(1)
 
         self.send_register()
+        self.run_job()
 
         tcp_thread.join()
 
@@ -68,11 +72,36 @@ class Worker:
             message = json.dumps(message)
             sock.sendall(message.encode('utf-8'))
 
+    def run_jon(self):
+        while not self.signals["shutdown"]:
+
+            if current_job is not None:
+                job = self.current_job
+            else:
+                continue
+
+            # do job
+            time.sleep(1)
+
+            message = {
+                "message_type": "finished",
+                "task_id": current_job['task_id'],
+                "worker_host": self.host,
+                "worker_port": self.port
+            }
+
+            tcp_client(self.manager_host, self.manager_port, "finished", message)   
+
+
     def handle_tcp(self, msg):
         message_type = msg["message_type"]
 
         if message_type == "shutdown":
             self.signals["shutdown"] == True
+
+        if message_type == "new_map_task":
+            current_job = msg
+            
 
 @click.command()
 @click.option("--host", "host", default="localhost")

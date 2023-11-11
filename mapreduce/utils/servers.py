@@ -70,7 +70,8 @@ def udp_server(host, port, signals, handle_func):
                 message_dict = json.loads(message_str)
 
 
-def tcp_client(host, port, task):
+def tcp_client(host, port, task="", message={}):
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.connect((host, port))
 
@@ -80,4 +81,7 @@ def tcp_client(host, port, task):
         
         elif task == "ack":
             message = json.dumps({"message_type": "register_ack"})
+            sock.sendall(message.encode('utf-8'))       
+        else:
+            message = json.dumps(message)
             sock.sendall(message.encode('utf-8'))

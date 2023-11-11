@@ -84,18 +84,20 @@ class Manager:
 
             # partition input files
             input_directory = job["input_directory"]
-            files = [f for f in os.listdir(input_directory)]
+            files = [input_directory + '/' + f for f in os.listdir(input_directory)]
             files = sorted(files)
 
             num_mappers = job["num_mappers"]
 
             partitioned_files = []
+            task_id = 0
             for i in range(num_mappers):
-                partitioned_files.append([])
+                partitioned_files.append((task_id, []))
+                task_id = task_id + 1
 
             for i, file in enumerate(files):
                 index = i % num_mappers
-                partitioned_files[index].append(file)
+                partitioned_files[index][1].append(file)
 
             prefix = f"mapreduce-shared-job{id:05d}-"
             with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
@@ -104,10 +106,26 @@ class Manager:
                 while not self.signals["shutdown"] and not job_complete:
                     time.sleep(1)
 
-                    # need to seend job to mappers
-                    
-                    job_complete = True
+                    for worker in self.workers:
+                        if worker["state"] == "ready":
+                            message = {
+                                "message_type": "new_map_task",
+                                "task_id": partitioned_files[0][0],
+                                "input_paths": partitioned_files[0][1],
+                                "executable": job["mapper_executable"],
+                                "output_directory": tmpdir,
+                                "num_partitions": job["num_reducers"],
+                            } 
 
+                            worker["state"] == "busy"
+
+                            tcp_client(worker['host'], worker['port'], task="new_map_task", message=message)
+                            partitioned_files.pop(0)
+                    
+                    if len(partitioned_files) <= 0:
+                        job_complete = True
+
+            
             LOGGER.info("Cleaned up tmpdir %s", tmpdir)
 
     def handle_tcp(self, msg):
@@ -136,6 +154,12 @@ class Manager:
             self.job_id = self.job_id + 1
 
             self.job_queue.put(msg)
+
+        elif message_type == "finished":
+            for worker in self.workers:
+                if worker['host'] == msg['worker_host']:
+                    worker['status'] = "ready"
+
 
 
     def handle_udp(self, msg):

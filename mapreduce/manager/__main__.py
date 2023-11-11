@@ -45,6 +45,7 @@ class Manager:
         self.job_id = 0 # increment for each added worker
         self.job_queue = Queue()
         self.currently_running = False
+        self.num_tasks = 0
 
 
         self.threads = []
@@ -103,27 +104,35 @@ class Manager:
             with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
                 LOGGER.info("Created tmpdir %s", tmpdir)
 
+                self.num_tasks = len(partitioned_files)
+
                 while not self.signals["shutdown"] and not job_complete:
                     time.sleep(1)
 
-                    for worker in self.workers:
-                        if worker["state"] == "ready":
-                            message = {
-                                "message_type": "new_map_task",
-                                "task_id": partitioned_files[0][0],
-                                "input_paths": partitioned_files[0][1],
-                                "executable": job["mapper_executable"],
-                                "output_directory": tmpdir,
-                                "num_partitions": job["num_reducers"],
-                            } 
+                    if len(partitioned_files) > 0:
+                        for worker in self.workers:
+                            if worker["state"] == "ready":
+                                message = {
+                                    "message_type": "new_map_task",
+                                    "task_id": partitioned_files[0][0],
+                                    "input_paths": partitioned_files[0][1],
+                                    "executable": job["mapper_executable"],
+                                    "output_directory": tmpdir,
+                                    "num_partitions": job["num_reducers"],
+                                } 
 
-                            worker["state"] == "busy"
+                                worker["state"] == "busy"
 
-                            tcp_client(worker['host'], worker['port'], task="new_map_task", message=message)
-                            partitioned_files.pop(0)
+                                tcp_client(worker['host'], worker['port'], task="new_map_task", message=message)
+                                partitioned_files.pop(0)
                     
-                    if len(partitioned_files) <= 0:
+                    if num_tasks <= 0:
                         job_complete = True
+
+                job_complete = False
+                while not self.signals["shutdown"] and not job_complete:
+                    time.sleep(1)
+
 
             
             LOGGER.info("Cleaned up tmpdir %s", tmpdir)
@@ -156,6 +165,7 @@ class Manager:
             self.job_queue.put(msg)
 
         elif message_type == "finished":
+            num_tasks = num_tasks - 1 
             for worker in self.workers:
                 if worker['host'] == msg['worker_host']:
                     worker['status'] = "ready"

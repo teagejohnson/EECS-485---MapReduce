@@ -17,7 +17,6 @@ from mapreduce.utils.servers import tcp_client
 # Configure logging
 LOGGER = logging.getLogger(__name__)
 
-
 class Manager:
     """Represent a MapReduce framework Manager node."""
 
@@ -125,15 +124,54 @@ class Manager:
 
                                 tcp_client(worker['host'], worker['port'], task="new_map_task", message=message)
                                 partitioned_files.pop(0)
-                    
-                    if num_tasks <= 0:
+
+                    if self.num_tasks <= 0:
                         job_complete = True
 
                 job_complete = False
+
+                task_id = 0
+                file_list = os.listdir(tmpdir)
+
+                file_list = sorted(file_list)
+
+                # partition
+                partitioned_reduce = []
+                task_id = 0
+                for i in range(job['num_reducers']):
+                    partitioned_reduce.append((task_id, []))
+                    task_id = task_id + 1
+
+                for file in file_list:
+                    end = int(file[-5:])
+                    partitioned_reduce[end][1].append(os.path.join(tmpdir, file))
+
+                self.num_tasks = len(partitioned_reduce)
+
                 while not self.signals["shutdown"] and not job_complete:
                     time.sleep(1)
 
+                    task_id = 0
+                    file_list = os.listdir(tmpdir)
 
+                    if len(partitioned_reduce) > 0:
+                        for worker in self.workers:
+                            if worker["state"] == "ready":
+                                message = {
+                                    "message_type": "new_reduce_task",
+                                    "task_id": partitioned_reduce[0][0],
+                                    "executable": job["reducer_executable"],
+                                    "input_paths": partitioned_reduce[0][1],
+                                    "output_directory": output_directory,
+                                }
+
+                                worker["state"] == "busy"
+
+                                tcp_client(worker['host'], worker['port'], task="new_reduce_task", message=message)
+                                partitioned_reduce.pop(0)
+
+                    if self.num_tasks <= 0:
+                        job_complete = True
             
             LOGGER.info("Cleaned up tmpdir %s", tmpdir)
 
@@ -165,7 +203,7 @@ class Manager:
             self.job_queue.put(msg)
 
         elif message_type == "finished":
-            num_tasks = num_tasks - 1 
+            self.num_tasks = self.num_tasks - 1 
             for worker in self.workers:
                 if worker['host'] == msg['worker_host']:
                     worker['status'] = "ready"

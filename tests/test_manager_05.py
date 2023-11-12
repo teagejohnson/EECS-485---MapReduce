@@ -24,7 +24,6 @@ def worker_message_generator(mock_sendall, tmp_path):
         "worker_port": 3002,
     }).encode("utf-8")
     yield None
-
     # User submits new job
     yield json.dumps({
         "message_type": "new_manager_job",
@@ -36,7 +35,6 @@ def worker_message_generator(mock_sendall, tmp_path):
         "num_reducers": 1
     }, cls=utils.PathJSONEncoder).encode("utf-8")
     yield None
-
     # Wait for Manager to create temporary directory for the first job
     #
     # Transfer control back to solution under test in between each check for
@@ -60,7 +58,7 @@ def worker_message_generator(mock_sendall, tmp_path):
     # to receive.
     for _ in utils.wait_for_map_messages(mock_sendall, num=2):
         yield None
-
+    
     # Status finished message from one mapper
     yield json.dumps({
         "message_type": "finished",

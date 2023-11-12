@@ -50,26 +50,6 @@ def tcp_server(host, port, signals, handle_func):
                 handle_func(msg)
 
 
-
-
-def udp_server(host, port, signals, handle_func):
-
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.bind((host, port))
-            
-            sock.settimeout(1)
-
-            while not signals["shutdown"]:
-                try:
-                    message_bytes = sock.recv(4096)
-                except socket.timeout:
-                    continue
-
-                message_str = message_bytes.decode("utf-8")
-                message_dict = json.loads(message_str)
-
-
 def tcp_client(host, port, task="", message={}):
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:

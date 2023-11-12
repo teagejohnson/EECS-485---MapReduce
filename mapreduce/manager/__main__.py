@@ -10,7 +10,7 @@ import socket
 import shutil
 from queue import Queue, Empty
 import threading
-from mapreduce.utils.servers import tcp_server, udp_server
+from mapreduce.utils.servers import tcp_server
 from mapreduce.utils.servers import tcp_client
 
 
@@ -45,22 +45,29 @@ class Manager:
         self.job_queue = Queue()
         self.currently_running = False
         self.num_tasks = 0
+        self.worker_jobs = {}
 
 
         self.threads = []
         tcp_thread = threading.Thread(target=tcp_server, args=(host, port, self.signals, self.handle_tcp))
         self.threads.append(tcp_thread)
-        udp_thread = threading.Thread(target=udp_server, args=(host, port, self.signals, self.handle_udp))
+        udp_thread = threading.Thread(target=self.udp_server)
         self.threads.append(udp_thread)
+        heartbeat_thread = threading.Thread(target=self.heartbeart)
+        self.threads.append(heartbeat_thread)
+
+
 
         tcp_thread.start()
         udp_thread.start()
+        heartbeat_thread.start()
         time.sleep(1)
 
         self.run_job()
 
         tcp_thread.join()
         udp_thread.join()
+        heartbeat_thread.join()
 
 
     def run_job(self):
@@ -105,9 +112,10 @@ class Manager:
 
                 self.num_tasks = len(partitioned_files)
 
+                self.worker_jobs = {}
+
                 while not self.signals["shutdown"] and not job_complete:
                     time.sleep(1)
-
                     if len(partitioned_files) > 0:
                         for worker in self.workers:
                             if worker["state"] == "ready":
@@ -123,8 +131,13 @@ class Manager:
                                 worker["state"] == "busy"
 
                                 tcp_client(worker['host'], worker['port'], task="new_map_task", message=message)
-                                partitioned_files.pop(0)
-
+                                self.worker_jobs[worker['host'] + str(worker['port'])] = partitioned_files.pop(0)
+                    
+                    for worker in self.workers:
+                        if worker['state'] == 'dead':
+                            if worker['host'] + str(worker['port']) in self.worker_jobs.keys():
+                                partitioned_files.append(self.worker_jobs[worker['host'] + str(worker['port'])])
+                                del self.worker_jobs[worker['host'] + str(worker['port'])]
                     if self.num_tasks <= 0:
                         job_complete = True
 
@@ -148,6 +161,8 @@ class Manager:
 
                 self.num_tasks = len(partitioned_reduce)
 
+                self.worker_jobs = {}
+
                 while not self.signals["shutdown"] and not job_complete:
                     time.sleep(1)
 
@@ -168,12 +183,55 @@ class Manager:
                                 worker["state"] == "busy"
 
                                 tcp_client(worker['host'], worker['port'], task="new_reduce_task", message=message)
-                                partitioned_reduce.pop(0)
+                                self.worker_jobs[worker['host'] + str(worker['port'])] = partitioned_reduce.pop(0)
 
+                    for worker in self.workers:
+                        if worker['state'] == 'dead':
+                            if worker['host'] + str(worker['port']) in self.worker_jobs.keys():
+                                partitioned_reduce.append(self.worker_jobs[worker['host'] + str(worker['port'])])
+                                del self.worker_jobs[worker['host'] + str(worker['port'])]
                     if self.num_tasks <= 0:
                         job_complete = True
             
             LOGGER.info("Cleaned up tmpdir %s", tmpdir)
+
+
+    def udp_server(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((self.host, self.port))
+            
+            sock.settimeout(1)
+
+            while not self.signals["shutdown"]:
+                try:
+                    message_bytes = sock.recv(4096)
+                except socket.timeout:
+                    continue
+
+                message_str = message_bytes.decode("utf-8")
+                message = json.loads(message_str)
+
+                if message['message_type'] == "heartbeat":
+                    for worker in self.workers:
+                        if message['worker_host']  == worker['host'] and message['worker_port'] == worker['port']:
+                            worker['heartbeat'] = True
+
+
+    def heartbeart(self):
+        while not self.signals["shutdown"]:
+            time.sleep(10)
+
+            for worker in self.workers:
+                if worker['heartbeat'] == False:
+                    worker['state'] = 'dead'
+
+                elif worker['state'] == 'dead':
+                    worker['state'] = 'ready'
+
+                worker['heartbeat'] = False
+
+            
 
     def handle_tcp(self, msg):
         message_type = msg["message_type"]
@@ -183,13 +241,15 @@ class Manager:
             
             # shutdown all workers
             for worker in self.workers:
-                tcp_client(worker["host"], worker["port"], "shutdown")
+                if worker['state'] != 'dead':
+                    tcp_client(worker["host"], worker["port"], "shutdown")
         
         elif message_type == "register":
             worker = {
                 "host": msg["worker_host"],
                 "port": msg["worker_port"],
                 "state": "ready",
+                "heartbeat": False,
             }
             self.workers.append(worker)
             
@@ -205,13 +265,10 @@ class Manager:
         elif message_type == "finished":
             self.num_tasks = self.num_tasks - 1 
             for worker in self.workers:
-                if worker['host'] == msg['worker_host']:
+                if worker['host'] == msg['worker_host'] and worker['port'] == msg['worker_port']:
                     worker['status'] = "ready"
-
-
-
-    def handle_udp(self, msg):
-        print(msg)
+                    del self.worker_jobs[worker['host'] + str(worker['port'])]
+        
 
        
 

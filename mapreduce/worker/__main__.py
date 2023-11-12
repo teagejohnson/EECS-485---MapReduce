@@ -13,7 +13,7 @@ from contextlib import ExitStack
 import hashlib
 import subprocess
 import mapreduce.utils
-from mapreduce.utils.servers import tcp_server, udp_server
+from mapreduce.utils.servers import tcp_server
 from mapreduce.utils.servers import tcp_client
 
 
@@ -92,18 +92,17 @@ class Worker:
             if not self.received_ack: 
                 continue
             else: 
-
                 message = {
                     "message_type": "heartbeat",
-                    "worker_host": string,
-                    "worker_port": int
+                    "worker_host": self.host,
+                    "worker_port": self.port
                 }
 
                 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
                     sock.connect((self.manager_host, self.manager_port))
-
                     message = json.dumps(message)
                     sock.sendall(message.encode('utf-8'))
+           
 
 
 
@@ -216,7 +215,7 @@ class Worker:
         if message_type == "new_map_task" or message_type == 'new_reduce_task':
             self.current_job = msg
 
-        if message_type == "ack":
+        if message_type == "register_ack":
             self.received_ack = True
 
             

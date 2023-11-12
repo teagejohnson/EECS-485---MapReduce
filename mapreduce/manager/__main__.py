@@ -118,7 +118,7 @@ class Manager:
                     time.sleep(1)
                     if len(partitioned_files) > 0:
                         for worker in self.workers:
-                            if worker["state"] == "ready":
+                            if worker["state"] == "ready" and len(partitioned_files) > 0:
                                 message = {
                                     "message_type": "new_map_task",
                                     "task_id": partitioned_files[0][0],
@@ -171,7 +171,7 @@ class Manager:
 
                     if len(partitioned_reduce) > 0:
                         for worker in self.workers:
-                            if worker["state"] == "ready":
+                            if worker["state"] == "ready" and len(partitioned_reduce) > 0:
                                 message = {
                                     "message_type": "new_reduce_task",
                                     "task_id": partitioned_reduce[0][0],

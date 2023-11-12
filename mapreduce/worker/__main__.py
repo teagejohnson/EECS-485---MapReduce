@@ -178,6 +178,7 @@ class Worker:
                 executable = job['executable']
                 instream = heapq.merge(*files)
                 file_path = os.path.join(tmpdir, f'part-{job["task_id"]:05d}')
+                print(file_path)
 
                 with  open(file_path, 'a') as outfile:
 
